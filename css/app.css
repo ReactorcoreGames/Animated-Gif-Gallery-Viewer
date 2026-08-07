@@ -1,0 +1,1123 @@
+/* Animated GIF Gallery Viewer */
+
+:root {
+  /* App chrome. Every text colour below clears WCAG AA (4.5:1) against the
+     surface it is used on — measured, not eyeballed:
+       ink        13.2 : 1   ink-dim  8.4 : 1
+       ink-faint   6.4 : 1   amber    8.8 : 1   on --panel */
+  --bg: #14171c;
+  --panel: #1b1f26;
+  --panel-hi: #222732;
+  --line: #333a45;
+  --line-hi: #4a5262;
+  --ink: #f2f0ea;
+  --ink-dim: #b3b9c4;
+  --ink-faint: #9aa1ae;
+  --amber: #e8b562;
+  --amber-hi: #f5cd82;
+  --amber-deep: #d9a758;
+  --amber-dim: #8a6c34;
+  --amber-glow: rgba(232, 181, 98, 0.32);
+  --on-amber: #14171c;          /* dark text on amber fills: 9.6 : 1 */
+
+  /* Saturated accents for the empty state and status colours. */
+  --accent-teal: #3fc7c0;
+  --accent-violet: #a98cf0;
+  --accent-rose: #f07d8a;
+
+  /* GIF backdrop — overridden by the swatch picker */
+  --gif-bg: #0f1115;
+  --gif-bg-image: none;
+
+  --mono: "Consolas", "SF Mono", "Menlo", monospace;
+  --sans: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+
+  --radius: 6px;
+  --radius-sm: 4px;
+  --cellsize: 200px;
+}
+
+* { box-sizing: border-box; }
+
+/* `hidden` must win over the display rules below, or the header controls show
+   up before a folder is ever loaded. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  height: 100%;
+  overflow: hidden;
+}
+
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* ---------- header ---------- */
+
+/* Two deliberate rows rather than one wrapping flex line: row 1 is identity and
+   file source, row 2 is view controls. Each row balances on its own, so the
+   header never strands a lone control in a corner. */
+header {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+/* Tight vertical padding: the controls inside are deliberately large, so the
+   bar itself must not add much on top or the header eats the viewport. */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 5px 20px;
+}
+
+.bar-controls {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  border-top: 1px solid var(--line);
+  background: rgba(0, 0, 0, .16);
+  gap: 16px;
+}
+
+.spacer { flex: 1 1 auto; min-width: 12px; }
+
+.brandlink {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: color .15s, border-color .15s, background .15s;
+}
+
+.brandlink:hover {
+  color: var(--amber);
+  border-color: var(--amber-dim);
+  background: rgba(232, 181, 98, .08);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.brand img {
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  display: block;
+  box-shadow: 0 0 0 1px var(--line-hi), 0 0 16px rgba(232, 181, 98, .18);
+}
+
+.brand h1 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+  margin: 0;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+/* Header control groups. Each group is a labelled cluster; the groups are
+   spaced by the header's gap rather than one auto-margin flinging the last
+   control to the far edge. */
+.group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.group.grow { flex: 1 1 180px; min-width: 0; }
+
+.group-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  flex-shrink: 0;
+}
+
+/* ---------- controls ---------- */
+
+.btn {
+  background: var(--panel-hi);
+  border: 1px solid var(--line-hi);
+  color: var(--ink);
+  padding: 7px 16px;
+  min-height: 34px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--mono);
+  white-space: nowrap;
+  transition: background .15s, color .15s, border-color .15s, box-shadow .15s;
+}
+
+.btn:hover {
+  background: var(--amber);
+  color: var(--on-amber);
+  border-color: var(--amber-hi);
+}
+
+.btn:active { transform: translateY(1px); }
+
+/* The main call to action: filled amber with dark text (9.6:1). */
+.btn.primary {
+  background: var(--amber);
+  color: var(--on-amber);
+  border-color: var(--amber-hi);
+  box-shadow: 0 2px 10px rgba(232, 181, 98, .18);
+}
+
+.btn.primary:hover {
+  background: var(--amber-hi);
+  box-shadow: 0 0 22px var(--amber-glow);
+}
+
+.btn.toggle-on {
+  background: var(--amber);
+  color: var(--on-amber);
+  border-color: var(--amber-hi);
+  box-shadow: 0 0 16px var(--amber-glow);
+}
+
+.btn.icon-btn {
+  padding: 7px 13px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber-hi);
+  outline-offset: 2px;
+}
+
+select, input[type="text"], input[type="search"] {
+  background: var(--bg);
+  border: 1px solid var(--line-hi);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  padding: 7px 11px;
+  min-height: 34px;
+  border-radius: var(--radius-sm);
+  transition: border-color .15s, box-shadow .15s;
+}
+
+select:hover, input[type="search"]:hover { border-color: var(--amber-deep); }
+select:focus, input[type="search"]:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-glow);
+  outline: none;
+}
+
+input[type="search"] { width: 100%; min-width: 0; }
+input[type="search"]::placeholder { color: var(--ink-faint); }
+
+input[type="range"] {
+  accent-color: var(--amber);
+  width: 130px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  padding: 4px 4px;
+}
+
+.check:hover { color: var(--ink); }
+.check input {
+  accent-color: var(--amber);
+  cursor: pointer;
+  margin: 0;
+  width: 17px;
+  height: 17px;
+}
+
+.stat {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.stat b { color: var(--ink); font-weight: 700; }
+
+/* ---------- current folder label ---------- */
+
+.folder-info {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, .22);
+  cursor: help;
+}
+
+.folder-name {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--amber);
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-name::before {
+  content: "📁 ";
+  filter: grayscale(.2);
+}
+
+.folder-close {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--line-hi);
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .13s, color .13s, border-color .13s;
+}
+
+.folder-close:hover {
+  background: var(--accent-rose);
+  color: var(--on-amber);
+  border-color: var(--accent-rose);
+}
+
+/* ---------- backdrop swatches ---------- */
+
+.swatches { display: flex; align-items: center; gap: 5px; }
+
+.swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-hi);
+  cursor: pointer;
+  padding: 0;
+  transition: transform .12s, border-color .12s, box-shadow .12s;
+}
+
+.swatch:hover { transform: scale(1.15); border-color: var(--ink); }
+
+.swatch.selected {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-glow);
+}
+
+.swatch.checker {
+  background-image:
+    linear-gradient(45deg, #7a7a7a 25%, transparent 25%, transparent 75%, #7a7a7a 75%),
+    linear-gradient(45deg, #7a7a7a 25%, #cfcfcf 25%, #cfcfcf 75%, #7a7a7a 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 5px 5px;
+}
+
+/* ---------- empty state ---------- */
+
+#empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 28px;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* Two columns on a wide screen: mark + pitch + actions in a wide centre,
+   reference material on the right. Keeps a 16:9 window filled without
+   anything needing to be scrolled to. */
+.empty-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(430px, 1.5fr) minmax(280px, 0.95fr);
+  gap: 30px;
+  align-items: start;      /* columns share a top edge instead of floating */
+  width: 100%;
+  max-width: 1400px;
+}
+
+.col-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-width: 0;
+  position: relative;
+  isolation: isolate;      /* pins ::before's z-index: -1 within this box,
+                               instead of sinking under the opaque body bg */
+}
+
+.col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  min-width: 0;
+}
+
+.tour-btn {
+  font-size: 15px;
+  padding: 14px 26px;
+  min-height: 54px;
+  border-radius: 8px;
+  border-color: var(--amber-dim);
+  color: var(--amber);
+  background: rgba(232, 181, 98, .07);
+}
+
+.tour-btn:hover { color: var(--on-amber); }
+
+/* --- reference cards --- */
+
+.panel-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 15px 17px;
+  text-align: left;
+}
+
+.panel-card h3 {
+  margin: 0 0 11px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.keylist {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 12px;
+  margin: 0;
+  align-items: baseline;
+}
+
+.keylist dt { margin: 0; white-space: nowrap; }
+
+.keylist dd {
+  margin: 0;
+  font-size: 15.5px;
+  color: var(--ink-dim);
+  line-height: 1.35;
+}
+
+.keylist kbd, .empty-note kbd {
+  font-family: var(--mono);
+  background: var(--panel-hi);
+  border: 1px solid var(--line-hi);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.notelist {
+  margin: 0;
+  padding-left: 17px;
+  font-size: 15.5px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+}
+
+.notelist li { margin-bottom: 6px; }
+.notelist li:last-child { margin-bottom: 0; }
+.notelist b { color: var(--ink); font-weight: 600; }
+
+/* Soft amber pool behind the empty state, echoing the icon's glow. */
+/* Soft amber pool behind the centre column, echoing the icon's glow.
+   `inset` rather than a fixed size: a decorative layer must never be the thing
+   that makes the page scroll (a fixed 680px height overflowed a 675px viewport
+   by 3px and forced a scrollbar at 1280x720). */
+#empty::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 45% 48% at 50% 50%,
+              rgba(232, 181, 98, .15) 0%, rgba(232, 181, 98, .05) 42%, transparent 70%);
+  pointer-events: none;
+}
+
+/* The app icon, blurred and darkened, distant behind the merged column —
+   echoes the mark without competing with the text sitting on top of it. */
+.col-main::before {
+  content: "";
+  position: absolute;
+  inset: -40px;
+  z-index: -1;
+  background-image: url("../promo/icon_og.jpg");
+  background-size: cover;
+  background-position: center;
+  filter: blur(22px) brightness(.35);
+  opacity: .5;
+  border-radius: var(--radius);
+  pointer-events: none;
+}
+
+/* Echoes the app icon: a 3x3 grid of tiles lit from behind in amber, pulsing
+   out of phase to read as "many things animating at once". */
+.empty-art {
+  display: grid;
+  grid-template-columns: repeat(3, 60px);
+  grid-auto-rows: 60px;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 22px;
+}
+
+.empty-art i {
+  background: #10131a;
+  border: 1px solid var(--line-hi);
+  border-radius: 10px;
+  animation: tilepulse 3.4s ease-in-out infinite;
+}
+
+.empty-art i:nth-child(1) { animation-delay: 0s; }
+.empty-art i:nth-child(2) { animation-delay: .22s; }
+.empty-art i:nth-child(3) { animation-delay: .44s; }
+.empty-art i:nth-child(4) { animation-delay: .66s; }
+.empty-art i:nth-child(5) { animation-delay: .88s; }
+.empty-art i:nth-child(6) { animation-delay: 1.1s; }
+.empty-art i:nth-child(7) { animation-delay: 1.32s; }
+.empty-art i:nth-child(8) { animation-delay: 1.54s; }
+.empty-art i:nth-child(9) { animation-delay: 1.76s; }
+
+@keyframes tilepulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(201, 161, 90, .10);
+    border-color: var(--line-hi);
+  }
+  50% {
+    box-shadow: 0 0 26px rgba(201, 161, 90, .55), 0 0 8px rgba(201, 161, 90, .35);
+    border-color: var(--amber-dim);
+  }
+}
+
+#empty h2 {
+  font-size: clamp(26px, 2.5vw, 36px);
+  font-weight: 700;
+  margin: 0 0 14px;
+  color: var(--ink);
+  letter-spacing: -0.015em;
+  line-height: 1.18;
+}
+
+#empty .lede {
+  font-size: 16px;
+  line-height: 1.58;
+  color: var(--ink-dim);
+  margin: 0 auto 26px;
+  max-width: 80ch;
+}
+
+#empty .cta {
+  margin-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 11px;
+}
+
+.cta-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+}
+
+#empty .cta .btn.primary {
+  font-size: 18px;
+  padding: 15px 40px;
+  min-height: 54px;
+  border-radius: 8px;
+}
+
+.cta-sub {
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+/* Grid rather than wrapping flex, so three cards never break 2+1. */
+.empty-points {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.empty-points div {
+  font-family: var(--sans);
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .empty-points { grid-template-columns: 1fr; }
+}
+
+/* Short viewports (720p laptops, windowed browsers): compress the vertical
+   rhythm so the welcome screen still fits without scrolling. */
+@media (max-height: 800px) {
+  #empty { padding: 18px 24px; }
+  .empty-art { grid-template-columns: repeat(3, 48px); grid-auto-rows: 48px; gap: 9px; }
+  #empty h2 { font-size: clamp(23px, 2.1vw, 30px); margin-bottom: 10px; }
+  #empty .lede { font-size: 15px; margin-bottom: 18px; }
+  #empty .cta { margin-bottom: 18px; gap: 8px; }
+  #empty .cta .btn.primary { font-size: 16px; padding: 12px 32px; min-height: 46px; }
+  .tour-btn { font-size: 13px; padding: 11px 20px; min-height: 46px; }
+  .panel-card { padding: 12px 14px; }
+  .panel-card h3 { margin-bottom: 8px; }
+  .keylist { gap: 5px 10px; }
+  .keylist dd, .notelist { font-size: 14.5px; }
+  .empty-points div { padding: 11px 13px; }
+  .col-right { gap: 11px; }
+  .empty-grid { gap: 24px; }
+}
+
+.empty-points div:nth-child(1) { --accent: var(--amber); }
+.empty-points div:nth-child(2) { --accent: var(--accent-teal); }
+.empty-points div:nth-child(3) { --accent: var(--accent-violet); }
+
+.empty-points b {
+  display: block;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14.5px;
+  margin-bottom: 5px;
+  letter-spacing: .01em;
+}
+
+/* ---------- feature tour modal ---------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(8, 9, 12, .82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 26px;
+}
+
+/* The box is a column so the action row can be pinned outside the scroll
+   area — the buttons must never be the thing that gets cut off. */
+.modal-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line-hi);
+  border-radius: 10px;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, .65);
+  padding: 22px 26px 20px;
+  max-width: 1000px;
+  width: 100%;
+  max-height: 94vh;
+  min-height: 0;
+}
+
+.modal-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.modal-box h2 {
+  margin: 0 0 14px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  padding-right: 44px;
+  flex-shrink: 0;
+}
+
+.modal-close {
+  position: absolute;
+  top: 14px; right: 14px;
+  width: 34px; height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-hi);
+  border: 1px solid var(--line-hi);
+  color: var(--ink);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background .13s, color .13s;
+}
+
+.modal-close:hover {
+  background: var(--amber);
+  color: var(--on-amber);
+  border-color: var(--amber-hi);
+}
+
+.modal-shot { margin: 0 0 16px; }
+
+.modal-shot img {
+  width: 100%;
+  height: auto;
+  max-height: 42vh;
+  object-fit: contain;
+  display: block;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.modal-shot figcaption {
+  margin-top: 7px;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.modal-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 12px;
+}
+
+.modal-features div {
+  font-size: 13px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+  border-left: 3px solid var(--amber-dim);
+  padding-left: 12px;
+}
+
+.modal-features b {
+  display: block;
+  color: var(--amber);
+  font-size: 13.5px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 11px;
+  justify-content: center;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 16px;
+  flex-shrink: 0;
+}
+
+.modal-actions .btn { font-size: 15px; padding: 11px 26px; min-height: 44px; }
+
+/* ---------- grid ---------- */
+
+#grid-wrap { flex: 1; overflow-y: auto; padding: 16px; display: none; }
+
+#grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--cellsize), 1fr));
+  gap: 12px;
+}
+
+.cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background-color: var(--gif-bg);
+  background-image: var(--gif-bg-image);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: zoom-in;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color .15s, box-shadow .15s, transform .12s;
+
+  /* Supplementary perf assist alongside the IntersectionObserver. */
+  content-visibility: auto;
+  contain-intrinsic-size: var(--cellsize) var(--cellsize);
+}
+
+.cell:hover, .cell:focus-visible {
+  border-color: var(--amber-dim);
+  box-shadow: 0 0 0 1px var(--amber-dim), 0 0 22px var(--amber-glow);
+  transform: translateY(-2px);
+}
+
+.cell img, .cell canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.cell .name {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 12px 8px 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-dim);
+  background: linear-gradient(transparent, rgba(0, 0, 0, .82));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s;
+}
+
+.cell:hover .name,
+.cell:focus-visible .name,
+.cell.show-name .name { opacity: 1; }
+
+/* Placeholder shown while a cell is outside the viewport. */
+.cell.pending::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(45deg, #1c2026, #1c2026 10px, #191d23 10px, #191d23 20px);
+  opacity: .85;
+}
+
+.cell.broken::after {
+  content: "⚠ unreadable";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1c1214;
+  color: #b0656a;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* --- per-cell buttons, revealed on hover --- */
+
+.cell-actions {
+  position: absolute;
+  top: 6px; right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity .15s;
+  z-index: 2;
+}
+
+.cell:hover .cell-actions,
+.cell:focus-within .cell-actions,
+.cell.paused .cell-actions,
+.cell.faved .cell-actions { opacity: 1; }
+
+.cell-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, .28);
+  background: rgba(12, 14, 18, .9);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background .12s, color .12s, border-color .12s;
+}
+
+.cell-btn:hover {
+  background: var(--amber);
+  color: var(--on-amber);
+  border-color: var(--amber-hi);
+}
+
+.cell.paused .cell-btn.pause { color: var(--amber); border-color: var(--amber-dim); }
+.cell.faved .cell-btn.fav { color: var(--amber); border-color: var(--amber-dim); }
+
+.cell.paused { border-color: var(--amber-dim); }
+
+/* Top-left, so it never collides with the filename label along the bottom. */
+.cell.paused::before {
+  content: "❚❚ PAUSED";
+  position: absolute;
+  top: 7px; left: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  color: var(--on-amber);
+  background: var(--amber);
+  border-radius: 3px;
+  padding: 3px 7px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* The canvas that replaces the <img> while paused. */
+.cell canvas { background: transparent; }
+
+/* ---------- zoom overlay ---------- */
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 11, 13, .93);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  cursor: zoom-out;
+}
+
+#overlay.active { display: flex; }
+
+/* The backdrop swatch shows behind the zoomed image, not over the whole page. */
+#zoomStage {
+  background-color: var(--gif-bg);
+  background-image: var(--gif-bg-image);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .6);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 96vw;
+  max-height: 88vh;
+}
+
+#overlay.fullscreen #zoomStage { max-width: 100vw; max-height: 100vh; }
+
+#zoomCanvas {
+  display: block;
+  transition: width .06s linear, height .06s linear;
+}
+
+#zoomStage.loading::after {
+  content: "decoding…";
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-dim);
+  padding: 40px 60px;
+}
+
+.zoom-bar {
+  position: absolute;
+  top: 16px; left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  background: var(--panel);
+  border: 1px solid var(--line-hi);
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  max-width: 92vw;
+  cursor: default;
+  z-index: 3;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
+}
+
+.zoom-btn {
+  background: var(--panel-hi);
+  border: 1px solid var(--line-hi);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  line-height: 1;
+  min-width: 36px;
+  height: 32px;
+  cursor: pointer;
+  transition: background .13s, color .13s, border-color .13s;
+}
+
+.zoom-btn:hover {
+  background: var(--amber);
+  color: var(--on-amber);
+  border-color: var(--amber-hi);
+}
+
+#overlay.is-paused #zoomPauseBtn {
+  background: var(--amber);
+  color: var(--on-amber);
+  border-color: var(--amber-hi);
+}
+
+.zoom-bar .zsep {
+  width: 1px;
+  height: 22px;
+  background: var(--line-hi);
+}
+
+.zoom-bar .zname {
+  color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40vw;
+}
+
+.zoom-bar .zlevel { color: var(--amber); font-weight: 700; min-width: 4.5ch; }
+.zoom-bar .zidx { color: var(--ink-faint); }
+.zoom-bar .zframe { color: var(--accent-teal); }
+
+.zoom-hint {
+  position: absolute;
+  bottom: 16px; left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  cursor: default;
+  background: rgba(20, 23, 28, .8);
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  max-width: 94vw;
+  text-align: center;
+  z-index: 3;
+}
+
+.zoom-hint kbd {
+  background: var(--panel-hi);
+  border: 1px solid var(--line-hi);
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* True fullscreen: chrome fades back so the GIF owns the screen, and returns
+   on hover for anyone who needs the controls. */
+#overlay.fullscreen { background: #000; }
+#overlay.fullscreen #zoomStage { border: none; border-radius: 0; box-shadow: none; }
+#overlay.fullscreen .zoom-bar,
+#overlay.fullscreen .zoom-hint { opacity: .18; transition: opacity .2s; }
+#overlay.fullscreen .zoom-bar:hover,
+#overlay.fullscreen .zoom-hint:hover { opacity: 1; }
+
+/* ---------- toast ---------- */
+
+#toast {
+  position: fixed;
+  bottom: 22px; left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  background: var(--panel);
+  border: 1px solid var(--line-hi);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 9px 16px;
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 200;
+}
+
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 1100px) {
+  .bar { flex-wrap: wrap; gap: 12px; }
+  .bar-controls .group.grow { flex-basis: 100%; order: -1; }
+  .divider { display: none; }
+}
+
+/* Below two-column width the reference column drops under the pitch rather
+   than stacking into a tall page. */
+@media (max-width: 1180px) {
+  #empty { align-items: flex-start; padding-top: 30px; }
+  .empty-grid {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+  .col-right { flex-direction: row; }
+  .col-right .panel-card { flex: 1; }
+}
+
+@media (max-width: 760px) {
+  .empty-grid { grid-template-columns: 1fr; gap: 24px; }
+  .col-right { flex-direction: column; }
+  .empty-points { grid-template-columns: 1fr; }
+  .cta-row { flex-direction: column; width: 100%; }
+  .cta-row .btn { width: 100%; }
+}
+
+@media (max-width: 720px) {
+  .bar { padding: 10px 14px; }
+  .brand h1 { font-size: 12px; }
+  .brandlink { display: none; }
+}
+
+/* Applies to UI chrome only — never to the GIFs, which are the entire point. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+  .cell:hover { transform: none; }
+}

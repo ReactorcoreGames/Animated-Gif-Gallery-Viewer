@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animated GIF Gallery Viewer</title>
+<meta name="description" content="Open a folder and watch every animated GIF inside it play at once in a grid. Fully local — nothing is uploaded.">
+<link rel="icon" href="icon.ico">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <!-- Row 1: identity and file source. Present at all times. -->
+    <div class="bar bar-top">
+      <div class="brand">
+        <img src="promo/icon_og.jpg" alt="" width="34" height="34">
+        <h1>Animated GIF Gallery Viewer</h1>
+      </div>
+
+      <div class="group">
+        <button class="btn primary" id="pickBtn">Open Folder</button>
+        <label class="check" title="Include GIFs from subdirectories on the next folder open">
+          <input type="checkbox" id="subfoldersCheck">
+          Subfolders
+        </label>
+      </div>
+
+      <div class="folder-info" id="folderInfo" hidden>
+        <span class="folder-name" id="folderName" title=""></span>
+        <span class="stat" id="stats"></span>
+        <button class="folder-close" id="closeFolderBtn"
+                title="Close this folder and return to the welcome screen"
+                aria-label="Close folder">✕</button>
+      </div>
+
+      <div class="spacer"></div>
+
+      <a class="brandlink" href="https://linktr.ee/reactorcore" target="_blank" rel="noopener">
+        Made by Reactorcore
+      </a>
+    </div>
+
+    <!-- Row 2: view controls. Appears once a folder is loaded. -->
+    <div class="bar bar-controls" data-controls hidden>
+      <div class="group grow">
+        <input type="search" id="searchInput" placeholder="Filter by filename…  (press / to jump here)"
+               autocomplete="off" title="Type to show only GIFs whose filename contains your text. Press / to focus, Esc to clear.">
+      </div>
+
+      <div class="group">
+        <span class="group-label">Sort</span>
+        <select id="sortSelect" title="Reorder the grid by name, file size, date modified, or shuffle randomly">
+          <option value="name">Name A–Z</option>
+          <option value="name-desc">Name Z–A</option>
+          <option value="size">Size, small first</option>
+          <option value="size-desc">Size, large first</option>
+          <option value="date">Oldest first</option>
+          <option value="date-desc">Newest first</option>
+          <option value="random">Shuffle</option>
+        </select>
+      </div>
+
+      <div class="group">
+        <span class="group-label">Size</span>
+        <input type="range" id="sizeSlider" min="100" max="360" value="200" step="10"
+               aria-label="Thumbnail size"
+               title="Make the grid thumbnails larger or smaller">
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="group">
+        <span class="group-label">Backdrop</span>
+        <div class="swatches" id="swatches"
+             title="Colour shown behind GIFs that have transparency — handy for checking edges"></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="group">
+        <button class="btn icon-btn" id="favFilterBtn"
+                title="Show only GIFs you've starred. Click ★ on a GIF to star it.">★ Favorites</button>
+        <button class="btn icon-btn" id="pauseAllBtn"
+                title="Freeze every GIF at its current frame. You can still resume individual GIFs.">❚❚ Pause all</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="empty">
+    <div class="empty-grid">
+
+      <!-- Merged: tile mark, the pitch, and the primary actions. -->
+      <section class="col-main">
+        <div class="empty-art" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+
+        <h2>See all your animated GIFs at once</h2>
+        <p class="lede">
+          Trying to view many animated GIFs on Windows and macOS sucks donkey balls. This web app lets you open a folder and view all the GIFs as big grid that you can scroll, zoom in, pause at any frame, and handle loading even browsing 1000s of GIFs without breaking a sweat!
+        </p>
+
+        <div class="cta">
+          <div class="cta-row">
+            <button class="btn primary" id="pickBtnBig">Open Folder</button>
+            <button class="btn tour-btn" id="tourBtn"
+                    title="See what the viewer can do, with a screenshot of it in action">
+              Features Info
+            </button>
+          </div>
+          <span class="cta-sub">Nothing is uploaded — files are read locally in your browser.</span>
+        </div>
+
+        <div class="empty-points">
+          <div><b>Click to zoom</b>Scroll to scale 1–20×, or fill the screen</div>
+          <div><b>Pause anything</b>Freeze a GIF right where it is, then step frame by frame</div>
+          <div><b>Backdrop colors</b>Checkerboard or solid, to check transparent edges</div>
+        </div>
+      </section>
+
+      <!-- Right: reference material worth keeping visible. -->
+      <aside class="col-right">
+        <div class="panel-card">
+          <h3>Controls</h3>
+          <dl class="keylist">
+            <dt><kbd>Scroll</kbd></dt><dd>Browse the grid</dd>
+            <dt><kbd>Click</kbd></dt><dd>Zoom a GIF</dd>
+            <dt><kbd>Space</kbd></dt><dd>Pause the GIF under the cursor</dd>
+            <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Next GIF, or step frames while paused</dd>
+            <dt><kbd>F</kbd></dt><dd>Fullscreen the zoomed GIF</dd>
+            <dt><kbd>F11</kbd></dt><dd>Browser fullscreen (hides all browser chrome)</dd>
+            <dt><kbd>/</kbd></dt><dd>Jump to the filename filter</dd>
+            <dt><kbd>Esc</kbd></dt><dd>Close the zoom view</dd>
+            <dt><kbd>F5</kbd></dt><dd>Reload to pick a different folder</dd>
+          </dl>
+        </div>
+
+        <div class="panel-card">
+          <h3>Good to know</h3>
+          <ul class="notelist">
+            <li>Only <b>.gif</b> files are loaded — everything else in the folder is ignored.</li>
+            <li>Tick <b>Subfolders</b> before opening to include nested folders.</li>
+            <li>Handles thousands of GIFs; only what's on screen animates.</li>
+            <li>Favorites and settings are remembered. Paused GIFs are not.</li>
+            <li>Works in Chrome, Edge, and Firefox.</li>
+          </ul>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+
+  <!-- Feature tour modal -->
+  <div id="tourModal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
+      <button class="modal-close" id="tourClose" title="Close (Esc)" aria-label="Close">✕</button>
+      <h2 id="tourTitle">What this viewer does</h2>
+
+      <div class="modal-scroll">
+      <figure class="modal-shot">
+        <img src="promo/modal.png" alt="The viewer showing a folder of animated GIFs in a grid">
+        <figcaption>A folder of 121 animated GIFs, all playing at once.</figcaption>
+      </figure>
+
+      <div class="modal-features">
+        <div><b>Everything animates at once</b>No more clicking through thumbnails one at a time — the whole folder plays together.</div>
+        <div><b>Built for big folders</b>Thousands of GIFs stay smooth: only what's on screen is decoded.</div>
+        <div><b>True pause</b>Freeze any GIF exactly where it is, then step through it frame by frame.</div>
+        <div><b>Zoom and fullscreen</b>Scroll to scale 1–20×, or let one GIF fill the entire display.</div>
+        <div><b>Transparency backdrops</b>Swap the colour behind your GIFs — checkerboard, black, white, or a keying colour.</div>
+        <div><b>Find things fast</b>Filter by filename, sort by name, size, or date, shuffle, and star favorites.</div>
+        <div><b>Completely private</b>Files never leave your machine. No server, no upload, no account.</div>
+        <div><b>Runs anywhere</b>A folder of static files — works online or straight off your disk.</div>
+      </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" id="tourDismiss">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="grid-wrap">
+    <div id="grid" role="list"></div>
+  </div>
+</div>
+
+<div id="overlay" aria-hidden="true">
+  <div class="zoom-bar">
+    <button class="zoom-btn" id="zoomPauseBtn" title="Pause (Space)" aria-label="Pause">❚❚</button>
+    <button class="zoom-btn" id="zoomFsBtn" title="Fullscreen (F)" aria-label="Fullscreen">⛶</button>
+    <span class="zsep"></span>
+    <span class="zlevel" id="zoomLevel">1.0×</span>
+    <span class="zname" id="zoomName"></span>
+    <span class="zidx" id="zoomIdx"></span>
+    <span class="zframe" id="zoomFrame"></span>
+  </div>
+  <div id="zoomStage"><canvas id="zoomCanvas"></canvas></div>
+  <div class="zoom-hint" id="zoomHint">
+    scroll to zoom · <kbd>Space</kbd> pause · <kbd>←</kbd> <kbd>→</kbd> next gif, or step frames while paused ·
+    <kbd>F</kbd> fullscreen · <kbd>Esc</kbd> to close
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+
+<script src="js/settings.js"></script>
+<script src="js/gifdecoder.js"></script>
+<script src="js/player.js"></script>
+<script src="js/zoom.js"></script>
+<script src="js/grid.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

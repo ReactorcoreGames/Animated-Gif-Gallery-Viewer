@@ -1,0 +1,43 @@
+# Build output
+dist/
+
+# Work-in-progress material kept out of the repo
+old wip/
+scratchpad/
+
+# Tooling / editor
+.claude/
+.vscode/
+.idea/
+*.code-workspace
+
+# OS cruft
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Python (helper scripts used to generate promo art)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Node, if tooling is ever added — the app itself has no build step
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+*.swp
+*~
