@@ -1,7 +1,6 @@
 # Animated GIF Gallery Viewer
 
-USE IT HERE FOR FREE ONLINE, UNLIMITED:
-https://reactorcore.itch.io/animated-gif-gallery-viewer
+**AVAILABLE HERE:** https://reactorcore.itch.io/animated-gif-gallery-viewer
 
 **Open a folder. Every animated GIF inside it plays at once, in a grid you can
 scroll, zoom, and pause.**
