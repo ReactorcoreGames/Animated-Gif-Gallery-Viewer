@@ -40,8 +40,21 @@ AGV.grid = (function () {
      first entry and revoked on exit, so a huge folder never holds thousands of
      live object URLs at once. */
 
+  /* The preload margin is expressed in pixels, but what actually matters is
+     how many *rows* of GIFs get mounted ahead of the viewport. 600px was tuned
+     against 200px cells (~3 rows); at the 360px maximum the same number
+     preloads far fewer rows, while at 100px it preloads six. Scaling with cell
+     size keeps the row count — and so the animation cost — roughly constant.
+     Clamped so it never collapses to nothing or preloads absurdly far. */
+  function preloadMargin() {
+    var css = getComputedStyle(document.documentElement).getPropertyValue('--cellsize');
+    var cell = parseInt(css, 10) || 200;
+    return Math.max(300, Math.min(900, Math.round(cell * 3)));
+  }
+
   function buildObserver() {
     if (io) io.disconnect();
+    var margin = preloadMargin() + 'px';
     io = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         var item = entry.target.__agvItem;
@@ -51,13 +64,27 @@ AGV.grid = (function () {
       });
     }, {
       root: wrapEl,
-      rootMargin: '600px 0px 600px 0px',
-      threshold: 0.01
+      rootMargin: margin + ' 0px ' + margin + ' 0px',
+      /* MUST be 0, not a fractional threshold. A ratio threshold like 0.01 asks
+         "is 1% of the target's AREA visible", which needs a non-zero area to
+         ever be true — and an unmounted <img> (no src) inside a cell that
+         `content-visibility: auto` has skipped can report a zero-size box. It
+         then never satisfies the ratio, never re-fires, and the cell stays in
+         `pending` forever: the "turbo scrolling leaves striped rows" bug.
+         0 means "any overlap at all", which is area-independent and is exactly
+         what virtualization wants. */
+      threshold: 0
     });
   }
 
+  /* Deliberately NOT `if (item.mounted) return;`. Fast scrolling makes a cell
+     enter, leave and re-enter between two IntersectionObserver batches, and the
+     observer only reports the net state — so a cell can end up flagged mounted
+     while its <img> actually has no src, and stay blank forever. mount() is
+     therefore idempotent and reconciles against the DOM: if the img is already
+     showing the right thing there is nothing to do, otherwise repair it.
+     This was the "some rows stay blank when you scroll hard" bug. */
   function mount(item) {
-    if (item.mounted) return;
     item.mounted = true;
 
     /* A paused cell re-entering the viewport is restored straight from decoded
@@ -73,14 +100,36 @@ AGV.grid = (function () {
       return;
     }
 
-    if (!item.url) {
-      try {
-        item.url = URL.createObjectURL(item.file);
-      } catch (e) {
-        markBroken(item);
-        return;
-      }
+    /* Healthy if the img points at the URL we minted for it AND it either
+       decoded successfully or is still loading. The failure case this catches
+       is `complete === true` with `naturalWidth === 0`: a load that finished
+       badly, which is what a revoked-mid-flight blob URL leaves behind. Just
+       comparing src to item.url is not enough — that comparison passes for a
+       dead URL too, so mount() would clear `pending` and return, leaving the
+       blank cell with no placeholder seen when turbo-scrolling. */
+    if (item.url && item.img.getAttribute('src') === item.url &&
+        (!item.img.complete || item.img.naturalWidth > 0)) {
+      item.el.classList.remove('pending');
+      return;
     }
+
+    /* Otherwise rebuild from the file. The old URL may be revoked, stale or
+       merely suspect — not worth distinguishing, so drop it and start clean. */
+    if (item.url) { URL.revokeObjectURL(item.url); item.url = null; }
+    try {
+      item.url = URL.createObjectURL(item.file);
+    } catch (e) {
+      markBroken(item);
+      return;
+    }
+    /* Clear before assigning. A cell re-entering the viewport is being given a
+       brand-new blob URL for a src slot that still holds the revoked one, and
+       Chromium can otherwise treat the assignment as a no-op and never load. */
+    if (item.img.hasAttribute('src')) item.img.removeAttribute('src');
+    /* Stamp this load so its eventual load/error event can be matched against
+       the item's current generation — see the handlers in buildCell(). */
+    item.loadGen = (item.loadGen || 0) + 1;
+    item.img.__agvGen = item.loadGen;
     item.img.src = item.url;
     item.shownAt = performance.now();
     item.el.classList.remove('pending');
@@ -90,8 +139,18 @@ AGV.grid = (function () {
     if (!item.mounted) return;
     item.mounted = false;
 
+    /* Invalidate any load still in flight: the revoke below will make it fail,
+       and that failure must not be blamed on the file. */
+    item.loadGen = (item.loadGen || 0) + 1;
+
     if (pausedState(item)) return;   /* keep the frozen frame as-is */
 
+    /* Order matters: drop the src FIRST so the browser abandons any in-flight
+       load, and only then revoke. A revoke that lands while the <img> is still
+       reading yields "Image corrupt or truncated" and an error event. That can
+       still happen despite the ordering (the load may already be in flight
+       inside the network stack), which is why the error handler below treats a
+       truncated load as retryable rather than permanently broken. */
     if (item.img.getAttribute('src')) item.img.removeAttribute('src');
     if (item.url) {
       URL.revokeObjectURL(item.url);
@@ -332,13 +391,27 @@ AGV.grid = (function () {
     /* A re-render throws away every existing cell, so all per-cell state has to
        be reset too — otherwise a stale `mounted: true` makes mount() bail out
        and the rebuilt cell never gets its src back. Blob URLs are released here
-       as well, since the old cells will never be unmounted by the observer. */
-    io.disconnect();
+       as well, since the old cells will never be unmounted by the observer.
+       The observer is rebuilt rather than merely disconnected so it picks up
+       the current cell size in its preload margin. */
+    buildObserver();
     items.forEach(function (item) {
       item.mounted = false;
       item.el = null;
       item.img = null;
       item.canvas = null;
+      /* A re-render is a clean slate, so give a previously-failed cell another
+         chance. `broken` is not necessarily a bad file — a load truncated by a
+         mid-flight revoke sets it too, and without this reset that cell would
+         show "unreadable" for the rest of the session even though rebuilding
+         the grid is exactly what would have fixed it. A genuinely bad GIF just
+         fails again and is re-marked. */
+      item.broken = false;
+      item.retriedLoad = false;
+      /* Bumped, not zeroed — the old <img> elements are about to be discarded
+         but their pending load/error events may still fire, and a stale
+         generation is exactly how those get ignored. */
+      item.loadGen = (item.loadGen || 0) + 1;
       if (item.player) { item.player.destroy(); item.player = null; }
       if (item.url) { URL.revokeObjectURL(item.url); item.url = null; }
     });
@@ -359,7 +432,7 @@ AGV.grid = (function () {
 
       /* Observe only the cells this slice added. */
       for (var i = start; i < end; i++) {
-        if (visible[i].img) io.observe(visible[i].img);
+        if (visible[i].el) io.observe(visible[i].el);
       }
 
       if (index < visible.length) idle(step);
@@ -380,18 +453,58 @@ AGV.grid = (function () {
     cell.tabIndex = 0;
     cell.setAttribute('role', 'listitem');
     cell.setAttribute('aria-label', item.name);
+    /* The OBSERVED element is the cell, not the <img>. The cell has a fixed
+       aspect-ratio and so always has a real box; an <img> whose src has been
+       cleared can collapse to zero size, and a zero-area target is one the
+       observer may never report as intersecting again. */
+    cell.__agvItem = item;
 
     var img = document.createElement('img');
     img.alt = item.name;
     img.draggable = false;
-    img.loading = 'lazy';
-    img.__agvItem = item;
+    /* Deliberately NOT loading="lazy". The IntersectionObserver below already
+       does everything the browser's lazy-load does and more (it revokes blob
+       URLs too), and in Chromium the two fight: an image whose src is removed
+       and later re-set — exactly what unmount/mount does when you scroll away
+       and back — gets stuck in a deferred lazy state and never loads again.
+       That was the "scroll up and the GIFs never come back" bug, Chromium-only. */
     img.addEventListener('error', function () {
-      /* Only a real decode failure counts — clearing src also fires error. */
-      if (img.getAttribute('src')) markBroken(item);
+      /* Clearing src also fires error; that isn't a failure. */
+      if (!img.getAttribute('src')) return;
+
+      /* Distinguish "this file is bad" from "we pulled the rug out". Scrolling
+         away revokes the blob URL, and any load still in flight then fails —
+         through no fault of the GIF. `loadGen` is bumped by every mount, so an
+         error whose generation is stale belongs to a load we already abandoned
+         and must be ignored entirely. Counting those was what turned a hard
+         scroll into a grid full of red "unreadable" cells in Firefox. */
+      if (img.__agvGen !== item.loadGen) return;
+
+      /* Current generation, but the cell has since been unmounted — same
+         situation, just a race we lost by a tick. Not the file's fault. */
+      if (!item.mounted) return;
+
+      /* A genuine in-viewport failure. Retry once with a fresh URL before
+         condemning: a backgrounded tab resuming a pile of stalled loads can
+         produce a burst of these on perfectly good files. */
+      if (!item.retriedLoad) {
+        item.retriedLoad = true;
+        if (item.url) { URL.revokeObjectURL(item.url); item.url = null; }
+        img.removeAttribute('src');
+        setTimeout(function () {
+          if (item.img === img && item.mounted && !item.broken) mount(item);
+        }, 0);
+        return;
+      }
+      markBroken(item);
     });
     img.addEventListener('load', function () {
+      if (img.__agvGen !== item.loadGen) return;   /* superseded load */
       item.shownAt = performance.now();
+      /* Loaded fine, so the retry budget is spent on nothing — give it back.
+         Otherwise one transient failure early on uses up the only retry for
+         the rest of the session. */
+      item.retriedLoad = false;
     });
 
     var actions = document.createElement('div');

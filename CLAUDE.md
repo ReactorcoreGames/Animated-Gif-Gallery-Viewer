@@ -34,7 +34,7 @@ themselves.
 
 Don't break these without a measurement to justify it:
 
-- **Virtualization** (`grid.js`, IntersectionObserver with a 600px rootMargin).
+- **Virtualization** (`grid.js`, IntersectionObserver with a preload margin).
   Cells outside the viewport have their `<img src>` cleared, which stops decode
   and animation cost. This is what makes thousands of GIFs viable.
 - **Lazy blob URLs.** `URL.createObjectURL` is called on first intersection and
@@ -46,9 +46,75 @@ Don't break these without a measurement to justify it:
 - **Re-render resets per-item state.** `render()` clears `mounted`, `el`, `img`,
   `canvas` and revokes URLs for every item before rebuilding. Skipping this
   leaves stale `mounted: true` flags and rebuilt cells never load their src.
+- **Grid `<img>` elements must not carry `loading="lazy"`.** The observer
+  already does strictly more than the browser's lazy-load, and in Chromium the
+  two interact badly: an image whose `src` is removed and later re-set — which
+  is exactly what unmount/mount does when you scroll past a cell and back —
+  can stay stuck in a deferred state and never load. Symptom was "scroll down
+  fine, scroll back up and the cells stay blank until something forces a full
+  re-render." Chromium only; Firefox was unaffected.
+- **`mount()` removes the `src` attribute before assigning the new blob URL**,
+  for the same family of reason — the slot still holds an already-revoked URL.
+- **The IntersectionObserver observes the `.cell`, never the `<img>`, and uses
+  `threshold: 0`.** Both halves matter and both are about zero-area targets: an
+  `<img>` whose `src` was cleared can collapse to a zero-size box, and a
+  fractional threshold asks whether a percentage of the target's *area* is
+  visible — unanswerable for a zero-area element, so it never fires again and
+  the cell stays striped in `pending` forever. `.cell` has `aspect-ratio` so it
+  always has a real box, and `threshold: 0` means "any overlap", which is
+  area-independent. `content-visibility: auto` on `.cell` makes the zero-area
+  case easier to hit by skipping layout for off-screen cells, so if blank
+  striped rows ever come back under fast scrolling, drop `content-visibility`
+  first to confirm before touching the observer.
+- **Image `load`/`error` handlers are generation-guarded (`item.loadGen` vs
+  `img.__agvGen`).** `unmount()` revokes the blob URL, so every load still in
+  flight fails — an error that says nothing about the file. Without the guard
+  those failures reach `markBroken()`, and hard scrolling turns the whole grid
+  into red "unreadable" cells (seen in Firefox). `mount()` bumps the generation
+  and stamps the img; a mismatched event is discarded outright.
+- **`mount()` is idempotent and must not early-return on `item.mounted`.** The
+  IntersectionObserver batches and coalesces: scroll fast enough and a cell
+  enters, leaves and re-enters between two callbacks, so the observer reports
+  only the net state. A flag-guarded `mount()` then bails while the `<img>` has
+  no src, and the row stays blank until a re-render. It reconciles against the
+  DOM instead — cheap, because the "already correct" case returns immediately.
+  Symptom was blank rows that appeared only under fast/jerky scrolling.
+- **A failed image load gets one retry before `markBroken()`.** `broken` does
+  not only mean "bad GIF" — a blob URL revoked while its load is still in
+  flight produces "Image corrupt or truncated" too, and a backgrounded tab
+  resuming a pile of stalled loads triggers it in bulk. Without the retry, one
+  tab switch permanently blanks good thumbnails (clicking still worked, since
+  the zoom overlay mints its own URL via `urlFor()` and ignores `broken`).
+  `render()` also clears `broken`/`retriedLoad` so a rebuild is a clean slate.
 
 Measured on 2000 GIFs (5.2 MB): 1.6s load, 10 MB JS heap, 1.2s filter, 1.8s
 sort.
+
+## Playback cost is pixels per second, not file count
+
+The intuition that "more GIFs = slower" is wrong and misleads bug reports. The
+browser's per-frame cost is roughly *area × frame rate × how much of each frame
+actually changes*, so one unoptimised 1000×1000 GIF with full-frame disposal at
+20fps can cost more than a hundred optimised 400×300 ones. A user reporting
+stutter on 70 GIFs while a 1393-GIF folder runs smooth here is not a
+contradiction — their GIFs are doing more work each. Ask for dimensions, frame
+rate and whether the files went through an optimiser before assuming hardware.
+
+Two mechanisms bound that cost:
+
+- **`content-visibility: auto` + `contain-intrinsic-size` on `.cell`** — lets
+  the engine skip rendering for off-screen cells. Complements the observer
+  (which stops *decode*) rather than duplicating it. Safe only because cells
+  have an intrinsic size, so skipped cells still reserve correct space.
+- **Preload margin scales with cell size** (`preloadMargin()`). The old fixed
+  600px was ~3 rows at the default 200px cell but far fewer at 360px; scaling
+  keeps the number of preloaded rows, and so the animation cost, constant.
+  `render()` rebuilds the observer rather than just disconnecting it, so a size
+  change actually takes effect.
+
+Beyond these, some stutter when fully zoomed out on a large monitor is expected
+and is not a bug to engineer around — the zoom slider is the user's control for
+how much animation is on screen at once.
 
 ## Pause implementation — why there is a GIF decoder
 
@@ -111,6 +177,16 @@ Do not re-propose these; they were considered and rejected:
   button in the zoom bar.
 - **Canvas-capture pause** (`drawImage` on the `<img>`). It always yields frame
   0; see the pause section above.
+- **A "max GIFs animating at once" cap.** Built and reverted. It fails twice
+  over. Conceptually it solves stutter by *not animating the GIFs*, which is
+  the same objection that killed the thumbnail worker — seeing everything move
+  at once is the product. Mechanically it was worse: driving the cap from
+  scroll meant `freeze()` ran on dozens of cells at once, and `freeze()`
+  decodes a whole GIF to full-size bitmaps. With a large folder that exhausts
+  memory and kills the tab (reproduced in Firefox). The decoder is for one GIF
+  at a time, on deliberate user action. Some stutter when fully zoomed out on a
+  large monitor is expected and acceptable; the zoom slider is already the
+  user's control for it.
 
 ## Welcome screen
 
